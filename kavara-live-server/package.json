@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "chokidar": "^5.0.0",
+    "commander": "^14.0.2",
+    "mime-types": "^3.0.2",
+    "picocolors": "^1.1.1",
+    "ws": "^8.18.3"
+  },
+  "name": "kavara-live-server",
+  "version": "1.0.0",
+  "main": "src/server.js",
+  "type": "module",
+  "bin": {
+    "kv": "./bin/kv.js"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
