@@ -10,6 +10,15 @@ from pathlib import Path
 from PIL import Image
 import argparse
 
+# Reconfigure standard streams to use UTF-8 to prevent encoding crashes on Windows
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except (AttributeError, ValueError):
+        pass
+
+
 
 # Define icon sizes for different platforms
 ICON_SIZES = {
@@ -42,6 +51,12 @@ ICON_SIZES = {
         (256, 256),
         (384, 384),
         (512, 512),
+    ],
+    "chrome-extension": [
+        (16, 16),
+        (32, 32),
+        (48, 48),
+        (128, 128),
     ],
 }
 

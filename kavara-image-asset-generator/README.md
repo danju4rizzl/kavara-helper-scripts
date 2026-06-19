@@ -43,6 +43,13 @@ A Python script that generates multiple icon sizes from a single input image for
 - 384x384 px
 - 512x512 px
 
+### Chrome Extension Icons
+- 16x16 px (Favicon & omnibox)
+- 32x32 px (Windows context menus)
+- 48x48 px (chrome://extensions management page)
+- 128x128 px (Chrome Web Store listing & install dialog)
+
+
 ## Installation
 
 1. **Clone or navigate to the directory:**
@@ -111,15 +118,20 @@ output/
 │   ├── icon-150x150.png
 │   ├── icon-310x150.png
 │   └── icon-310x310.png
-└── pwa-manifest/
+├── pwa-manifest/
+│   ├── icon-48x48.png
+│   ├── icon-72x72.png
+│   ├── icon-96x96.png
+│   ├── icon-144x144.png
+│   ├── icon-192x192.png
+│   ├── icon-256x256.png
+│   ├── icon-384x384.png
+│   └── icon-512x512.png
+└── chrome-extension/
+    ├── icon-16x16.png
+    ├── icon-32x32.png
     ├── icon-48x48.png
-    ├── icon-72x72.png
-    ├── icon-96x96.png
-    ├── icon-144x144.png
-    ├── icon-192x192.png
-    ├── icon-256x256.png
-    ├── icon-384x384.png
-    └── icon-512x512.png
+    └── icon-128x128.png
 ```
 
 ## Command-Line Options
