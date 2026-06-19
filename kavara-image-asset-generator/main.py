@@ -166,6 +166,10 @@ Examples:
         help='Maintain aspect ratio and pad with transparency'
     )
     
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
+
     args = parser.parse_args()
     
     # Generate icons
