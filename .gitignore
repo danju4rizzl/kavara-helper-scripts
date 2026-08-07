@@ -1,0 +1,98 @@
+# ==========================================
+# Python & Virtual Environments
+# ==========================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Testing & Linting caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ==========================================
+# Node.js & Package Managers
+# ==========================================
+node_modules/
+.bun/
+dist/
+build/
+
+# ==========================================
+# Project-Specific Generated Outputs & Media
+# ==========================================
+# kavara-image-asset-generator
+output/
+*.zip
+
+# kavara-image-compressor
+original_images/
+processed_images/
+
+# kavara-video-downloader & media helpers
+Downloads/
+downloads/
+*.mp4
+*.mkv
+*.webm
+*.avi
+*.mp3
+*.m4a
+*.wav
+*.flac
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
+.env
+.env.local
+.env.*.local
+*.env
+*.pem
+*.key
+
+# ==========================================
+# IDE & Editor Files
+# ==========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# ==========================================
+# OS Generated Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ==========================================
+# Logs & Temporary Files
+# ==========================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+bun.lockb
+*.tmp
+*.temp

@@ -1,0 +1,6 @@
+numpy
+soundfile
+noisereduce
+librosa
+google-genai
+pydantic
