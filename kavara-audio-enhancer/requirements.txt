@@ -4,3 +4,4 @@ noisereduce
 librosa
 google-genai
 pydantic
+colorama
