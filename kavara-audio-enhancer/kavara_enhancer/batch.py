@@ -112,6 +112,7 @@ def derive_file_context(
         cut_segments=[],
         subtitle_entries=[],
         exported_subtitle_files=[],
+        caption_file=None,
         subtitle_formats=list(template.subtitle_formats),
     )
 

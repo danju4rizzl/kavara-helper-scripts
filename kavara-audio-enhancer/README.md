@@ -8,8 +8,8 @@ A command-line audio/video enhancement tool that removes background noise, adjus
 
 | Feature | Description |
 |---|---|
-| **Noise Reduction** | Pick your engine: spectral gating via `noisereduce` (default), **RNNoise** neural denoising (`--denoise-engine rnnoise`) or **DeepFilterNet** (`--denoise-engine deepfilternet`). Strength is configurable (60% moderate, 80% standard, 95% aggressive, or custom %) to strip background hiss. |
-| **Pitch-Preserved Speed** | Time-stretch at preset (`1.0×`, `1.25×`, `1.5×`, `1.75×`, `2.0×`) or arbitrary speeds (e.g. `1.35×`) using FFmpeg's `atempo` filter without pitch distortion. |
+| **Noise Reduction** | Pick your engine: spectral gating via `noisereduce` (default), **RNNoise** neural denoising (`--denoise-engine rnnoise`) or **DeepFilterNet** (`--denoise-engine deepfilternet`). Strength is configurable (default 40% light, 60% moderate, 95% aggressive, or custom %). Keep it low: strengths above ~60% strip the consonants and make speech sound muffled. |
+| **Pitch-Preserved Speed** | Time-stretch at preset (`1.0×`, `1.25×`, `1.5×`, `1.75×`, `2.0×`) or arbitrary speeds (e.g. `1.35×`) using FFmpeg's **Rubber Band** time-stretcher (falls back to `atempo` if your FFmpeg build lacks it) without pitch distortion. |
 | **Loudness Normalization** | Two-pass FFmpeg `loudnorm` (EBU R128) with precise linear gain, targeting `-16.0 LUFS` (Podcast standard), `-14.0 LUFS` (YouTube / Web Video standard), `-23.0 LUFS` (Broadcast), or custom targets. |
 | **Batch Mode** | Pass several files, folders or globs (`kavara-enhancer *.mp4`): one set of settings, one job per file, a failing file never stops the rest, and a summary at the end. |
 | **Local Silence Removal** *(optional, free)* | `--cut-silence` trims dead air with FFmpeg `silencedetect` - no API key needed. Keeps a short natural pause on each side. |
@@ -102,11 +102,31 @@ The interactive wizard will guide you through:
 2. **Output Mode:** Choose between enhancing the video container or extracting standalone audio (when a video file is selected).
 3. **Audio Format Selection:** Choose your target audio format (`.mp3`, `.wav`, `.aac`, `.flac`, or match original).
 4. **Playback Speed:** Select `1.0x`, `1.25x`, `1.5x`, `1.75x`, `2.0x`, or enter any arbitrary custom speed (e.g. `1.35x`).
-5. **Noise Reduction Intensity:** Select `Standard (80%)`, `Moderate (60%)`, `Aggressive (95%)`, enter a custom percentage, or disable.
+5. **Noise Reduction Intensity:** Select `Light (40%, default)`, `Moderate (60%)`, `Aggressive (95%)`, enter a custom percentage, or disable.
 6. **Loudness Normalization (EBU R128):** Choose `Podcast Standard (-16 LUFS)`, `YouTube Standard (-14 LUFS)`, `Broadcast (-23 LUFS)`, custom LUFS target, or disable.
 7. **AI Smart Cuts & Subtitles:** Choose between Smart Cuts only, Subtitles & Captions only, Both, or local DSP only.
 8. **Subtitle Format Selection:** If subtitles are enabled, choose between `.srt`, `.vtt`, `both`, or `all` (including plain text transcript).
+   For video output you are then asked whether to **burn the captions into the video** (default: yes).
 9. **Job Confirmation & Progress:** Displays a formatted summary card before processing with real-time step progress and elapsed time.
+
+### Setups: Balanced, Fast or Custom
+
+In the interactive wizard (after the speed question) or with `--preset`, pick how much you want to decide:
+
+| Setup | What it does | Best for |
+|---|---|---|
+| **Balanced** *(recommended)* | Silence removal + AI removal of fillers, repeats and restarts, light 40% denoise, loudness normalization, **captions burned into video**, high-quality video (`veryfast`, CRF 20). Falls back to local-only cuts if no Gemini key is set. | Most recordings |
+| **Fast** | Local silence removal + loudness only. No AI, no denoise. Quickest video encode (`ultrafast`, CRF 23) so the video file is larger. | Quick turnaround, no API use |
+| **Custom** | You choose every option (the classic wizard / flags). Default when you pass flags without `--preset`. | Full control |
+
+Speed, file and format are always your choice. Any explicit flag overrides the preset, e.g. `--preset balanced --no-ai --denoise 60%`, `--preset balanced --no-burn-captions` (keeps `.srt`, skips burn-in) or `--preset fast --subtitles`.
+
+On a 10-minute 1080p screen recording with 134 cuts at 1.25x, Fast took about 65 s and Balanced about 105 s (video file 41 MB vs 24 MB).
+
+```bash
+python enhancer.py --file lecture.mp4 --preset balanced --speed 1.25
+python enhancer.py --file lecture.mp4 --preset fast
+```
 
 ### Command-Line Arguments
 If you prefer using flags, all options are supported:
@@ -119,6 +139,9 @@ python enhancer.py --file lecture.mp4 --speed 1.35 --denoise 90% --normalize -14
 
 # Extract audio from a video, enable AI cuts, and generate SRT + VTT captions in parallel (8 workers)
 python enhancer.py --file lecture.mp4 --speed 1.25 --extract-audio --format mp3 --use-ai --subtitles --subtitle-format both --workers 8
+
+# Burn captions into the video itself (drawn after cuts/speed, in the same encode pass)
+python enhancer.py --file demo.mp4 --use-ai --burn-captions
 
 # Generate synchronized captions for a video without speed change
 python enhancer.py --file lecture.mp4 --subtitles --subtitle-format srt
@@ -153,19 +176,23 @@ python enhancer.py --interactive
 | `FILE ...` | | Positional: files, folders or glob patterns. More than one file runs as a batch |
 | `--file` | `-f` | Source file(s), folder(s) or glob(s); same as the positional form |
 | `--speed` | `-s` | Playback speed multiplier (e.g. `1.25`, `1.5`, `1.75`, `2.0`) |
-| `--denoise` | | Noise reduction strength (e.g. `0.8`, `80%`, `95%`) |
+| `--preset` | | Ready-made setup: `balanced`, `fast` or `custom` (see above). Explicit flags override it |
+| `--denoise` | | Noise reduction strength (e.g. `0.4`, `40%`, `60%`; default 40%) |
 | `--no-denoise` | | Explicitly disable noise reduction |
 | `--normalize` | `--lufs` | Target loudness in LUFS for EBU R128 normalization (e.g. `-16.0`, `-14.0`) |
 | `--no-normalize` | | Explicitly disable loudness normalization |
 | `--use-ai` | | Enable Gemini 3.5 Transcribe filler word, repeated-phrase and silence removal |
 | `--no-ai` | | Explicitly disable AI smart cuts without prompting |
 | `--subtitles` | `--captions` | Enable Gemini 3.5 Transcribe synchronized subtitle/caption generation |
-| `--no-subtitles` | | Explicitly disable subtitle generation |
+| `--burn-captions` | | Burn captions into the video (implies `--subtitles`; video output only). Short 2-7 word lines, white bold text on a dark box, sized to the video; re-encodes the video |
+| `--no-burn-captions` | | Do not burn captions into the video (overrides the Balanced default; subtitle files are still made) |
+| `--no-subtitles` | | Explicitly disable subtitle generation (also turns off burn-in unless `--burn-captions` is given) |
 | `--subtitle-format`| `--sub-format`| Subtitle format to export: `srt`, `vtt`, `both`, or `all` (default: `srt`) |
 | `--cut-silence` | | Trim dead silence locally with FFmpeg (free). Implied by `--use-ai` |
 | `--silence-threshold` | | Level in dB counted as silence (default: `-35`; try `-40` for noisy rooms) |
-| `--output` | `-o` | Output file (e.g. `out/clean.mp3`) or directory (e.g. `out/`). Default: `<name>_enhanced.<ext>` in the current directory |
+| `--output` | `-o` | Output file (e.g. `out/clean.mp3`) or directory (e.g. `out/`). Default: `enhanced_files/<name>_enhanced.<ext>` |
 | `--dry-run` | | Show the plan and the detected cuts without writing any output. With `--use-ai` this still calls Gemini |
+| `--no-sound` | | Turn off the sound cues: one short blip when a job starts, three rising notes when it finishes, two low falling notes on error. Also `KAVARA_SOUND=0`. Silent when output isn't a terminal |
 | `--model` | | Gemini model id (default: `$GEMINI_MODEL`, then the built-in default) |
 | `--denoise-engine` | | `spectral` (default), `rnnoise` or `deepfilternet` |
 | `--rnnoise-model` | | Path to an RNNoise `.rnnn` model; implies `--denoise-engine rnnoise` |
@@ -224,7 +251,7 @@ python -m pytest
 
 ## Output
 
-The enhanced media and exported subtitle files are saved in the **current working directory** (or the `--output` location) matching your source filename:
+The enhanced media and exported subtitle files are saved in an **`enhanced_files/`** folder in the current working directory (created automatically; or the `--output` location) matching your source filename:
 
 ```
 lecture.mp4  →  lecture_enhanced.mp4             (Enhanced Video)

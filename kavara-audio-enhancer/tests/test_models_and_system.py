@@ -26,13 +26,13 @@ def test_format_duration(seconds, expected):
 def test_output_path_video_keeps_container(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     ctx = EnhancerContext(input_path=Path("lecture.mkv"), is_video=True, output_format=".mkv")
-    assert ctx.output_path == tmp_path / "lecture_enhanced.mkv"
+    assert ctx.output_path == tmp_path / "enhanced_files" / "lecture_enhanced.mkv"
 
 
 def test_output_path_extract_audio_defaults_to_mp3(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     ctx = EnhancerContext(input_path=Path("lecture.mp4"), is_video=True, extract_audio=True)
-    assert ctx.output_path == tmp_path / "lecture_enhanced.mp3"
+    assert ctx.output_path == tmp_path / "enhanced_files" / "lecture_enhanced.mp3"
 
 
 def test_output_format_without_dot_is_normalised(monkeypatch, tmp_path):

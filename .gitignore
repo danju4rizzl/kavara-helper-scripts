@@ -96,3 +96,9 @@ yarn-error.log*
 bun.lockb
 *.tmp
 *.temp
+
+# Python packaging
+*.egg-info/
+
+# Default output folder of kavara-audio-enhancer
+enhanced_files/

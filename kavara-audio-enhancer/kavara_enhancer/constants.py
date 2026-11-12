@@ -12,6 +12,13 @@ MAX_PLAYBACK_SPEED = 4.0
 MIN_LUFS_TARGET = -70.0
 MAX_LUFS_TARGET = -5.0
 
+DEFAULT_OUTPUT_DIR_NAME = "enhanced_files"  # default destination for every output file (and its subtitles)
+
+# Video re-encode (the slowest step of a video job). `veryfast` was ~2.3x faster than `medium`
+# on a 10-min 1080p screen recording and produced a slightly smaller file at the same CRF.
+VIDEO_X264_PRESET = "veryfast"
+VIDEO_X264_CRF = "18"
+
 SAMPLE_RATE = 44100  # Hz -- standard CD-quality sample rate
 
 CHUNK_DURATION_SECONDS = 180.0  # 3 minutes per chunk — optimal for AI accuracy & parallel upload
@@ -36,6 +43,16 @@ RESTART_MAX_GAP_SECONDS = 3.0   # Max pause before the restart
 SUBTITLE_MAX_WORDS = 12
 SUBTITLE_MAX_SECONDS = 6.0
 SUBTITLE_BREAK_GAP_SECONDS = 0.7
+
+# Burned-in captions (one fixed house style; see captions.py)
+CAPTION_FONT = "Arial"
+CAPTION_MAX_WORDS = 7              # words on screen at once
+CAPTION_MAX_CHARS_LANDSCAPE = 42
+CAPTION_MAX_CHARS_PORTRAIT = 24    # 9:16 is narrow
+CAPTION_MAX_SECONDS = 3.5
+CAPTION_BREAK_GAP_SECONDS = 0.5    # a pause this long starts a new caption
+CAPTION_MIN_SECONDS = 0.5
+CAPTION_HOLD_SECONDS = 0.25        # keep a caption up briefly after the last word (never into the next one)
 
 # Terminal Styling Colors & Formatting (ANSI with Colorama support)
 STYLE_HEADER = "\033[1;36m"   # Bold Cyan

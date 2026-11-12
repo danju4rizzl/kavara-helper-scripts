@@ -173,10 +173,32 @@ def prompt_for_playback_speed() -> float:
             print(f"    {STYLE_ERROR}[!] Invalid choice or speed value '{user_input}'. Enter 1-6 or a speed number.{STYLE_RESET}")
 
 
+def prompt_for_preset() -> str:
+    """Ask which setup to use; returns 'balanced', 'fast' or 'custom'."""
+    from .presets import PRESET_BALANCED, PRESET_CUSTOM, PRESET_FAST, PRESETS
+
+    options = [
+        ("1", PRESET_BALANCED, f"{PRESETS[PRESET_BALANCED].label} (Recommended) - {PRESETS[PRESET_BALANCED].summary}"),
+        ("2", PRESET_FAST, f"{PRESETS[PRESET_FAST].label}     - {PRESETS[PRESET_FAST].summary}"),
+        ("3", PRESET_CUSTOM, "Custom   - choose every option yourself (noise, loudness, AI, silence...)"),
+    ]
+    print(f"\n  {STYLE_BOLD}⚙️  Setup: how much do you want to decide?{STYLE_RESET}")
+    for key, _, description in options:
+        print(f"     {STYLE_ACCENT}[{key}]{STYLE_RESET} {description}")
+    by_key = {key: name for key, name, _ in options}
+    while True:
+        choice = input(f"  {STYLE_BOLD}>{STYLE_RESET} Your choice [1]: ").strip()
+        if not choice:
+            return PRESET_BALANCED
+        if choice in by_key:
+            return by_key[choice]
+        print(f"    {STYLE_ERROR}[!] Please enter 1, 2 or 3.{STYLE_RESET}")
+
+
 def prompt_for_denoise_strength() -> float:
     """Interactively ask user for background noise reduction aggressiveness."""
     options = [
-        ("1", "Standard   (80% - Recommended, balanced hiss removal & natural voice)"),
+        ("1", "Light      (40% - Recommended, removes hiss but keeps your voice crisp)"),
         ("2", "Moderate   (60% - Light noise gating, preserves room ambiance)"),
         ("3", "Aggressive (95% - Heavy noise removal for AC hum or noisy rooms)"),
         ("4", "Custom percentage (0% - 100%)"),
@@ -187,12 +209,12 @@ def prompt_for_denoise_strength() -> float:
         marker = f"{STYLE_ACCENT}[{key}]{STYLE_RESET}"
         print(f"     {marker} {description}")
 
-    preset_map = {"1": 0.80, "2": 0.60, "3": 0.95, "5": 0.0}
+    preset_map = {"1": 0.40, "2": 0.60, "3": 0.95, "5": 0.0}
 
     while True:
         user_input = input(f"  {STYLE_BOLD}>{STYLE_RESET} Your choice [1]: ").strip().rstrip("%")
         if not user_input:
-            return 0.80
+            return 0.40
 
         if user_input in preset_map:
             return preset_map[user_input]
@@ -291,8 +313,11 @@ def prompt_for_subtitle_formats() -> list[str]:
     return mapping.get(choice, ["srt"])
 
 
-def prompt_for_ai_and_subtitles() -> tuple[bool, bool, list[str]]:
-    """Ask user whether to enable AI smart cutting, subtitle generation, or both."""
+def prompt_for_ai_and_subtitles(can_burn: bool = False) -> tuple[bool, bool, list[str], bool]:
+    """Ask about AI smart cuts and subtitles; for video output also whether to burn captions in.
+
+    Returns (use_cuts, use_subtitles, subtitle_formats, burn_captions).
+    """
     options = [
         ("1", "No AI Features          - Fast local DSP only"),
         ("2", f"AI Smart Cuts Only      - {gemini_label()} cuts 'um', 'uh', & dead silence"),
@@ -305,10 +330,17 @@ def prompt_for_ai_and_subtitles() -> tuple[bool, bool, list[str]]:
     use_subtitles = choice in ("3", "4")
     subtitle_formats = ["srt"]
 
+    burn_captions = False
+
     if use_subtitles:
         subtitle_formats = prompt_for_subtitle_formats()
+        if can_burn:
+            burn_captions = prompt_yes_no(
+                "Burn the captions into the video? (re-encodes the video; the subtitle files are still saved)",
+                default=True,
+            )
 
-    return use_cuts, use_subtitles, subtitle_formats
+    return use_cuts, use_subtitles, subtitle_formats, burn_captions
 
 
 def prompt_yes_no(question: str, default: bool = True) -> bool:

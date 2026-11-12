@@ -13,6 +13,7 @@ from .constants import (
 )
 from .denoise import ENGINE_LABELS, denoise_audio
 from .disfluency import find_disfluency_cuts
+from .captions import write_caption_file
 from .cutting import apply_cuts_audio_only, sanitize_cuts, total_cut_duration
 from .dsp import (
     change_speed_preserve_pitch, extract_audio, normalize_audio_loudness,
@@ -21,7 +22,7 @@ from .gemini_config import gemini_label
 from .models import CutSegment, EnhancerContext, TimedWord
 from .silence import detect_silences
 from .subtitles import save_subtitle_files
-from .system import get_audio_duration
+from .system import get_audio_duration, get_video_size
 from .timeline import remap_words
 from .ui import display_completion_banner, format_cut_report, log_step
 
@@ -196,10 +197,17 @@ def run_pipeline(ctx: EnhancerContext) -> None:
                     ctx.subtitle_entries, ctx.output_path, ctx.subtitle_formats
                 )
                 print(f"    {STYLE_SUCCESS}[OK] Generated {len(ctx.subtitle_entries)} subtitle lines ({', '.join(ctx.subtitle_formats)}).{STYLE_RESET}")
+                if ctx.burn_captions and ctx.is_video and not ctx.extract_audio:
+                    width, height = get_video_size(str(ctx.input_path))
+                    ctx.caption_file, caption_count = write_caption_file(words, width, height, ctx.temp_dir)
+                    print(f"    {STYLE_SUCCESS}[OK] Prepared {caption_count} burned-in captions ({width}x{height}).{STYLE_RESET}")
             else:
                 print(f"    {STYLE_WARNING}[!] No speech detected for captioning.{STYLE_RESET}")
         except Exception as sub_err:
+            ctx.caption_file = None
             print(f"    {STYLE_WARNING}[!] Subtitle generation warning: {sub_err}{STYLE_RESET}")
+            if ctx.burn_captions:
+                print(f"    {STYLE_WARNING}[!] Captions will NOT be burned into the video.{STYLE_RESET}")
 
     # --- Step: Final Assembly ---
     current_step += 1
@@ -215,6 +223,9 @@ def run_pipeline(ctx: EnhancerContext) -> None:
                 cuts=ctx.cut_segments,
                 total_duration=duration,
                 speed=ctx.speed,
+                video_preset=ctx.video_preset,
+                video_crf=ctx.video_crf,
+                caption_file=ctx.caption_file,
             )
         else:
             merge_audio_video(
@@ -222,6 +233,9 @@ def run_pipeline(ctx: EnhancerContext) -> None:
                 enhanced_audio_wav=working_wav,
                 output_path=ctx.output_path,
                 speed=ctx.speed,
+                video_preset=ctx.video_preset,
+                video_crf=ctx.video_crf,
+                caption_file=ctx.caption_file,
             )
     else:
         encode_audio_output(working_wav, ctx.output_path)

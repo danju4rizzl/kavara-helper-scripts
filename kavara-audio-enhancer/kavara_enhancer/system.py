@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+import functools
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,18 @@ from .constants import (
 
 
 FILTER_SCRIPT_THRESHOLD = 8000
+
+
+@functools.lru_cache(maxsize=None)
+def ffmpeg_has_filter(name: str) -> bool:
+    """True if the installed FFmpeg build includes the named audio/video filter."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True, check=True
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return any(len(parts) > 1 and parts[1] == name for parts in (line.split() for line in result.stdout.splitlines()))
 
 
 def run_ffmpeg(args: list[str], description: str, loglevel: str = "error") -> str:
@@ -90,6 +103,23 @@ def get_audio_duration(file_path: str) -> float:
         check=True,
     )
     return float(result.stdout.strip())
+
+
+def get_video_size(file_path: str) -> tuple[int, int]:
+    """Probe the (width, height) of the first video stream via ffprobe."""
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0",
+            file_path,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    width, height = result.stdout.strip().split("x")[:2]
+    return int(width), int(height)
 
 
 def find_local_media_files(directory: Path = Path(".")) -> list[Path]:

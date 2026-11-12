@@ -14,7 +14,7 @@ from .constants import (
     APP_NAME, DEFAULT_MAX_WORKERS, MAX_LUFS_TARGET,
     MAX_PLAYBACK_SPEED, MIN_LUFS_TARGET, MIN_PLAYBACK_SPEED, STYLE_ERROR,
     STYLE_BOLD, STYLE_RESET, STYLE_SUCCESS, STYLE_WARNING, SUPPORTED_AUDIO_EXTENSIONS, SUPPORTED_VIDEO_EXTENSIONS,
-    DEFAULT_SILENCE_THRESHOLD_DB, VERSION,
+    DEFAULT_SILENCE_THRESHOLD_DB, STYLE_DIM, VERSION, VIDEO_X264_CRF, VIDEO_X264_PRESET,
 )
 from .batch import (
     BatchResult, collect_input_files, derive_file_context, find_output_collisions,
@@ -29,12 +29,14 @@ from .denoise import (
 from .env import load_dotenv
 from .gemini_config import set_active_model
 from .models import EnhancerContext
+from . import sounds
 from .pipeline import run_pipeline
+from .presets import PRESET_CHOICES, PRESET_CUSTOM, get_preset
 from .prompts import (
     ensure_gemini_api_key, prompt_for_ai_and_subtitles, prompt_for_audio_format,
     prompt_for_denoise_engine, prompt_for_denoise_strength, prompt_for_job_confirmation,
     prompt_for_loudness_normalization, prompt_for_output_mode,
-    prompt_for_playback_speed, prompt_for_silence_removal, prompt_for_source_file,
+    prompt_for_playback_speed, prompt_for_preset, prompt_for_silence_removal, prompt_for_source_file,
     prompt_yes_no,
 )
 from .system import classify_input_file, verify_ffmpeg_installed
@@ -168,7 +170,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--denoise", "--denoise-strength",
         type=parse_denoise_argument,
         dest="denoise_strength",
-        help="Noise reduction intensity (0.0 to 1.0 or 0 to 100, e.g. 0.8 or 80%%). Default: 0.8.",
+        help="Noise reduction intensity (0.0 to 1.0 or 0 to 100, e.g. 0.4 or 40%%). Default: 0.4 (higher values muffle speech).",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=PRESET_CHOICES,
+        default=None,
+        help="Ready-made setup: 'balanced' (recommended: silence + AI filler/repeat removal, light denoise, "
+             "loudness), 'fast' (local silence removal + loudness only, quickest) or 'custom' "
+             "(choose everything yourself; the default when flags are given). Explicit flags override the preset.",
     )
     parser.add_argument(
         "--no-denoise",
@@ -208,6 +218,18 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Generate synchronized subtitle/caption files using Gemini.",
     )
     parser.add_argument(
+        "--burn-captions",
+        action="store_true",
+        default=False,
+        help="Burn captions into the video (implies --subtitles; video output only; re-encodes the video).",
+    )
+    parser.add_argument(
+        "--no-burn-captions",
+        action="store_true",
+        default=False,
+        help="Do not burn captions into the video (e.g. to override a preset); subtitle files are still made if enabled.",
+    )
+    parser.add_argument(
         "--no-subtitles",
         action="store_true",
         default=False,
@@ -240,7 +262,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--output", "-o",
         type=str,
         help="Output file path (e.g. out/clean.mp3) or directory (e.g. out/). "
-             "Default: <name>_enhanced.<ext> in the current directory.",
+             "Default: enhanced_files/<name>_enhanced.<ext>.",
     )
     parser.add_argument(
         "--cut-silence",
@@ -260,6 +282,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Preview the plan and detected cuts without writing any output files.",
+    )
+    parser.add_argument(
+        "--no-sound",
+        action="store_true",
+        default=False,
+        help="Disable the start / complete / error sound cues (or set KAVARA_SOUND=0).",
     )
     parser.add_argument(
         "--model",
@@ -423,15 +451,28 @@ def resolve_execution_contexts(args: argparse.Namespace) -> Optional[list[Enhanc
     else:
         playback_speed = 1.0
 
+    # Step 4b: Setup preset (Balanced / Fast / Custom). Explicit flags below always win.
+    if args.preset:
+        preset_key = args.preset
+    elif is_interactive_mode:
+        preset_key = prompt_for_preset()
+    else:
+        preset_key = PRESET_CUSTOM
+    preset = get_preset(preset_key)
+    if preset:
+        print(f"\n  {STYLE_SUCCESS}[OK] Using the {preset.label} setup:{STYLE_RESET} {STYLE_DIM}{preset.summary}{STYLE_RESET}")
+
     # Step 5: Denoise Intensity
     if args.no_denoise:
         denoise_strength = 0.0
     elif args.denoise_strength is not None:
         denoise_strength = args.denoise_strength
+    elif preset:
+        denoise_strength = preset.denoise_strength
     elif is_interactive_mode:
         denoise_strength = prompt_for_denoise_strength()
     else:
-        denoise_strength = 0.80
+        denoise_strength = 0.40
 
     # Step 5b: Noise reduction engine
     denoise_engine = DEFAULT_DENOISE_ENGINE
@@ -441,6 +482,8 @@ def resolve_execution_contexts(args: argparse.Namespace) -> Optional[list[Enhanc
             denoise_engine = args.denoise_engine
         elif args.rnnoise_model:
             denoise_engine = ENGINE_RNNOISE
+        elif preset:
+            denoise_engine = preset.denoise_engine
         elif is_interactive_mode:
             denoise_engine = prompt_for_denoise_engine()
         rnnoise_model = prepare_denoise_engine(denoise_engine, args.rnnoise_model, is_interactive_mode)
@@ -450,6 +493,8 @@ def resolve_execution_contexts(args: argparse.Namespace) -> Optional[list[Enhanc
         normalize_lufs = None
     elif args.normalize_lufs is not None:
         normalize_lufs = args.normalize_lufs
+    elif preset:
+        normalize_lufs = (-14.0 if is_video else -16.0) if preset.normalize else None
     elif is_interactive_mode:
         normalize_lufs = prompt_for_loudness_normalization(is_video)
     else:
@@ -459,15 +504,26 @@ def resolve_execution_contexts(args: argparse.Namespace) -> Optional[list[Enhanc
     use_ai_cuts = False
     use_subtitles = False
     subtitle_formats = args.subtitle_formats or ["srt"]
+    wizard_burn = False
 
-    if args.no_ai and args.no_subtitles:
-        use_ai_cuts = False
-        use_subtitles = False
-    elif args.use_ai is not None or args.generate_subtitles is not None:
-        use_ai_cuts = bool(args.use_ai)
-        use_subtitles = bool(args.generate_subtitles)
+    if preset or (args.no_ai and args.no_subtitles) or args.use_ai is not None or args.generate_subtitles is not None or args.burn_captions:
+        # Start from the preset (or nothing), then let explicit flags override each option.
+        use_ai_cuts = bool(preset and preset.use_ai)
+        use_subtitles = bool(preset and preset.generate_subtitles)
+        if args.use_ai:
+            use_ai_cuts = True
+        if args.generate_subtitles:
+            use_subtitles = True
+        if args.no_ai:
+            use_ai_cuts = False
+        if args.no_subtitles:
+            use_subtitles = False
+        if args.burn_captions:
+            use_subtitles = True  # captions are drawn from the transcript
     elif is_interactive_mode:
-        use_ai_cuts, use_subtitles, subtitle_formats = prompt_for_ai_and_subtitles()
+        use_ai_cuts, use_subtitles, subtitle_formats, wizard_burn = prompt_for_ai_and_subtitles(
+            can_burn=is_video and not extract_audio_mode
+        )
     else:
         use_ai_cuts = False
         use_subtitles = False
@@ -479,9 +535,21 @@ def resolve_execution_contexts(args: argparse.Namespace) -> Optional[list[Enhanc
             use_ai_cuts = False
             use_subtitles = False
 
+    # Burn-in is an intent: preset default, wizard answer or --burn-captions; --no-burn-captions wins.
+    # The pipeline only burns when a file's output is video, so mixed batches work.
+    burn_captions = bool(
+        (args.burn_captions or wizard_burn or (preset and preset.burn_captions))
+        and not args.no_burn_captions
+        and use_subtitles
+    )
+    if args.burn_captions and burn_captions and not is_batch and (not is_video or extract_audio_mode):
+        print(f"  {STYLE_WARNING}[!] --burn-captions only applies to video output; captions will not be burned in.{STYLE_RESET}")
+
     # Local silence removal (implied by AI cuts, which only analyse filler words)
     if args.cut_silence or use_ai_cuts:
         cut_silence = True
+    elif preset:
+        cut_silence = preset.cut_silence
     elif is_interactive_mode and not args.dry_run:
         cut_silence = prompt_for_silence_removal()
     else:
@@ -495,6 +563,7 @@ def resolve_execution_contexts(args: argparse.Namespace) -> Optional[list[Enhanc
         use_ai=use_ai_cuts,
         generate_subtitles=use_subtitles,
         subtitle_formats=subtitle_formats,
+        burn_captions=burn_captions,
         max_workers=max_workers,
         denoise_strength=denoise_strength,
         denoise_engine=denoise_engine,
@@ -506,6 +575,9 @@ def resolve_execution_contexts(args: argparse.Namespace) -> Optional[list[Enhanc
         cut_silence=cut_silence,
         silence_threshold_db=args.silence_threshold,
         dry_run=args.dry_run,
+        video_preset=preset.video_preset if preset else VIDEO_X264_PRESET,
+        video_crf=preset.video_crf if preset else VIDEO_X264_CRF,
+        preset_name=preset.key if preset else None,
         output_dir=output_dir,
         output_file=output_file,
     )
@@ -521,7 +593,9 @@ def resolve_execution_contexts(args: argparse.Namespace) -> Optional[list[Enhanc
             audio_format = target_format
         else:
             audio_format = None
-        normalize_is_default = not (args.no_normalize or args.normalize_lufs is not None or is_interactive_mode)
+        normalize_is_default = not (
+            args.no_normalize or args.normalize_lufs is not None or (is_interactive_mode and preset is None)
+        )
 
         contexts.extend(
             derive_file_context(
@@ -623,6 +697,7 @@ def main() -> None:
 
     parser = build_argument_parser()
     args = parser.parse_intermixed_args()
+    sounds.set_enabled(not args.no_sound)
 
     if run_standalone_actions(args):
         return
@@ -633,12 +708,14 @@ def main() -> None:
         contexts = resolve_execution_contexts(args)
         if contexts is None:
             return
+        sounds.play(sounds.EVENT_START)
         results = run_batch(contexts)
     except KeyboardInterrupt:
         print(f"\n\n  {STYLE_WARNING}[x] Process cancelled by user. Exiting...{STYLE_RESET}\n")
         sys.exit(0)
     except Exception as error:
         print(f"\n{STYLE_ERROR}[ERROR] {error}{STYLE_RESET}\n")
+        sounds.play(sounds.EVENT_ERROR)
         sys.exit(1)
 
     if len(results) > 1:
@@ -648,7 +725,9 @@ def main() -> None:
         print()
 
     if any(not result.success for result in results):
+        sounds.play(sounds.EVENT_ERROR)
         sys.exit(1)
+    sounds.play(sounds.EVENT_COMPLETE)
 
 
 if __name__ == "__main__":

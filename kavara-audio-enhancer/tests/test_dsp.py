@@ -147,3 +147,35 @@ def test_normalize_silent_audio_falls_back_without_error(tmp_path):
     )
     normalize_audio_loudness(str(src), str(dst), -16.0)
     assert dst.exists()
+
+
+def test_rubberband_filter_string_and_validation():
+    from kavara_enhancer.dsp import build_rubberband_filter
+
+    assert build_rubberband_filter(1.5) == "rubberband=tempo=1.5:transients=mixed:window=short"
+    with pytest.raises(ValueError):
+        build_rubberband_filter(0)
+
+
+def test_speed_filter_prefers_rubberband_and_falls_back_to_atempo(monkeypatch):
+    from kavara_enhancer import dsp
+
+    monkeypatch.setattr(dsp, "ffmpeg_has_filter", lambda name: True)
+    assert dsp.build_speed_filter(1.5).startswith("rubberband=")
+    monkeypatch.setattr(dsp, "ffmpeg_has_filter", lambda name: False)
+    assert dsp.build_speed_filter(1.5) == "atempo=1.5"
+
+
+def test_video_encodes_use_the_fast_preset(monkeypatch, tmp_path):
+    from kavara_enhancer import assembly
+    from kavara_enhancer.models import CutSegment
+
+    seen = []
+    monkeypatch.setattr(assembly, "run_ffmpeg", lambda args, description, *a, **k: seen.append(args))
+    assembly.merge_cut_video_and_audio(tmp_path / "v.mp4", "a.wav", tmp_path / "o.mp4",
+                                       [CutSegment(1.0, 2.0)], 10.0, 1.0)
+    assembly.merge_audio_video(tmp_path / "v.mp4", "a.wav", tmp_path / "o.mp4", 1.25)
+    assert len(seen) == 2
+    for args in seen:
+        assert args[args.index("-preset") + 1] == "veryfast", "See AGENTS.md ('Performance')."
+        assert args[args.index("-crf") + 1] == "18"

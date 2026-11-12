@@ -117,6 +117,9 @@ def display_summary_card(ctx: EnhancerContext) -> None:
     print(f"  {STYLE_HEADER}│{STYLE_RESET}  {STYLE_BOLD}Silence Removal:{STYLE_RESET} {silence_desc}")
     print(f"  {STYLE_HEADER}│{STYLE_RESET}  {STYLE_BOLD}AI Smart Cuts  :{STYLE_RESET} {ai_desc}")
     print(f"  {STYLE_HEADER}│{STYLE_RESET}  {STYLE_BOLD}AI Subtitles   :{STYLE_RESET} {sub_desc}")
+    if ctx.is_video and not ctx.extract_audio:
+        burn_desc = f"{STYLE_SUCCESS}Enabled (drawn into the video){STYLE_RESET}" if ctx.burn_captions else f"{STYLE_DIM}Disabled{STYLE_RESET}"
+        print(f"  {STYLE_HEADER}│{STYLE_RESET}  {STYLE_BOLD}Burned Captions:{STYLE_RESET} {burn_desc}")
     print(f"  {STYLE_HEADER}└─────────────────────────────────────────────────────────────┘{STYLE_RESET}")
 
 
