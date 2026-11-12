@@ -8,9 +8,10 @@ A command-line audio/video enhancement tool that removes background noise, adjus
 
 | Feature | Description |
 |---|---|
-| **Noise Reduction** | Configurable spectral-gated denoising via `noisereduce` (60% moderate, 80% standard, 95% aggressive, or custom %) to strip background hiss. |
+| **Noise Reduction** | Pick your engine: spectral gating via `noisereduce` (default), **RNNoise** neural denoising (`--denoise-engine rnnoise`) or **DeepFilterNet** (`--denoise-engine deepfilternet`). Strength is configurable (60% moderate, 80% standard, 95% aggressive, or custom %) to strip background hiss. |
 | **Pitch-Preserved Speed** | Time-stretch at preset (`1.0×`, `1.25×`, `1.5×`, `1.75×`, `2.0×`) or arbitrary speeds (e.g. `1.35×`) using FFmpeg's `atempo` filter without pitch distortion. |
 | **Loudness Normalization** | Two-pass FFmpeg `loudnorm` (EBU R128) with precise linear gain, targeting `-16.0 LUFS` (Podcast standard), `-14.0 LUFS` (YouTube / Web Video standard), `-23.0 LUFS` (Broadcast), or custom targets. |
+| **Batch Mode** | Pass several files, folders or globs (`kavara-enhancer *.mp4`): one set of settings, one job per file, a failing file never stops the rest, and a summary at the end. |
 | **Local Silence Removal** *(optional, free)* | `--cut-silence` trims dead air with FFmpeg `silencedetect` - no API key needed. Keeps a short natural pause on each side. |
 | **Parallel AI Smart Cuts** *(optional)* | Powered by **Gemini 3.5 Transcribe** with multithreaded chunk processing — transcribes with word-level timestamps, then removes filler words ("um", "uh") and restarted phrases (in "I just want to… I just want to click here" the first take is deleted); silence is found locally and merged in. All cuts are validated (clamped, de-duplicated, sanity-checked) and joined with 10 ms declick fades, then surgically removed from audio and video tracks. |
 | **Parallel AI Subtitles** *(optional)* | Powered by **Gemini 3.5 Transcribe** with multithreaded chunk transcription — exports synchronized `.srt`, `.vtt`, and timestamped `.txt` transcripts in seconds. |
@@ -38,7 +39,9 @@ ffmpeg -version
 
 ### 3. Gemini API Key *(only if using AI smart cuts or subtitle generation)*
 Put it in a `.env` file next to `enhancer.py` (copy `.env.example`; it is gitignored): `GEMINI_API_KEY=your_key`. Or set it as an environment variable:
-Set your API key as an environment variable (or enter it interactively when prompted):
+The key is looked up in this order: **environment variable / `.env`** → **system keyring** → an interactive prompt (hidden input, with an offer to save it to the keyring).
+
+Environment variable examples:
 
 ```bash
 # Linux / macOS
@@ -50,6 +53,16 @@ $env:GEMINI_API_KEY = "your_key_here"
 # Windows (CMD)
 set GEMINI_API_KEY=your_key_here
 ```
+
+**System keyring** (optional; Windows Credential Manager, macOS Keychain, Secret Service):
+
+```bash
+pip install "kavara-audio-enhancer[keyring]"
+kavara-enhancer --save-api-key     # prompts (hidden) and stores it
+kavara-enhancer --delete-api-key   # removes it again
+```
+
+**Choosing the Gemini model:** use `--model MODEL_ID` or set `GEMINI_MODEL` (also works in `.env`). The model name shown in the interface follows your choice.
 
 ---
 
@@ -119,6 +132,17 @@ kavara-enhancer --file lecture.mp4 --output exports/lecture-clean.mp3
 # Preview the cuts without writing anything
 kavara-enhancer --file lecture.mp4 --cut-silence --silence-threshold -40 --dry-run
 
+# Batch: every supported file in a folder (or a glob), results in exports/
+kavara-enhancer lectures/ --speed 1.25 --cut-silence --output exports/
+kavara-enhancer "*.mp4" --lufs -14
+
+# Neural denoise with RNNoise (one-time ~300 KB model download), at 90% strength
+kavara-enhancer --download-rnnoise-model
+kavara-enhancer --file noisy.wav --denoise-engine rnnoise --denoise 90
+
+# Use a specific Gemini model
+kavara-enhancer --file talk.mp4 --subtitles --model gemini-2.5-flash
+
 # Force interactive wizard mode
 python enhancer.py --interactive
 ```
@@ -126,7 +150,8 @@ python enhancer.py --interactive
 ### All Options
 | Flag | Short | Description |
 |---|---|---|
-| `--file` | `-f` | Path to the source audio or video file |
+| `FILE ...` | | Positional: files, folders or glob patterns. More than one file runs as a batch |
+| `--file` | `-f` | Source file(s), folder(s) or glob(s); same as the positional form |
 | `--speed` | `-s` | Playback speed multiplier (e.g. `1.25`, `1.5`, `1.75`, `2.0`) |
 | `--denoise` | | Noise reduction strength (e.g. `0.8`, `80%`, `95%`) |
 | `--no-denoise` | | Explicitly disable noise reduction |
@@ -141,6 +166,11 @@ python enhancer.py --interactive
 | `--silence-threshold` | | Level in dB counted as silence (default: `-35`; try `-40` for noisy rooms) |
 | `--output` | `-o` | Output file (e.g. `out/clean.mp3`) or directory (e.g. `out/`). Default: `<name>_enhanced.<ext>` in the current directory |
 | `--dry-run` | | Show the plan and the detected cuts without writing any output. With `--use-ai` this still calls Gemini |
+| `--model` | | Gemini model id (default: `$GEMINI_MODEL`, then the built-in default) |
+| `--denoise-engine` | | `spectral` (default), `rnnoise` or `deepfilternet` |
+| `--rnnoise-model` | | Path to an RNNoise `.rnnn` model; implies `--denoise-engine rnnoise` |
+| `--download-rnnoise-model` | | Download and verify the RNNoise model, then exit |
+| `--save-api-key` / `--delete-api-key` | | Store / remove the Gemini API key in the system keyring, then exit |
 | `--workers` | `-w` | Number of concurrent worker threads for chunked AI analysis (default: `4`) |
 | `--extract-audio` | `-x` | Extract and enhance audio only from a video file |
 | `--format` | `-fmt` | Target audio output format (e.g. mp3, wav, flac, etc.) |
@@ -149,11 +179,39 @@ python enhancer.py --interactive
 
 ---
 
+## Batch Mode
+
+```bash
+kavara-enhancer a.mp4 b.wav c.mkv          # several files
+kavara-enhancer lectures/                  # every supported file in a folder (not recursive)
+kavara-enhancer "*.mp3" -o cleaned/        # glob (quote it so it works the same on Windows)
+```
+
+- Settings you choose (flags, or the wizard once) apply to every file. Per-file details are worked out for each file: video vs. audio, output extension and the default loudness target.
+- `--output` must be a **folder** in batch mode, and two inputs that would write the same output name (e.g. `a/talk.wav` and `b/talk.wav`) are rejected up front.
+- Folders and globs skip earlier `*_enhanced` results; a file you name explicitly is always processed.
+- A failing file is reported and the batch continues; the exit code is `1` if any file failed.
+- Interactive mode picks a single source file; use the flags above for batches.
+
+---
+
+## Noise Reduction Engines
+
+| Engine | Flag | Notes |
+|---|---|---|
+| Spectral gating | `--denoise-engine spectral` *(default)* | Built in, fast, good for steady hiss and hum. |
+| RNNoise | `--denoise-engine rnnoise` | Neural, runs through FFmpeg's `arnndn` filter (your FFmpeg build must include it). Needs a small model file: run `kavara-enhancer --download-rnnoise-model` once (SHA-256 verified, saved to your user data folder; override with `KAVARA_MODELS_DIR`) or pass `--rnnoise-model PATH` / set `KAVARA_RNNOISE_MODEL`. The model is the general-purpose `sh.rnnn` from [GregorR/rnnoise-models](https://github.com/GregorR/rnnoise-models). |
+| DeepFilterNet | `--denoise-engine deepfilternet` | Highest-quality neural option. Optional and heavy: `pip install "kavara-audio-enhancer[deepfilternet]"` (pulls in PyTorch). Works at 48 kHz internally. |
+
+`--denoise` sets the strength for every engine (RNNoise: wet/dry mix; DeepFilterNet: maximum attenuation). The chosen engine is validated before any work starts, so a missing model or package fails immediately with instructions.
+
+---
+
 ## Project Layout & Tests
 
 ```
 enhancer.py            # thin entry point (python enhancer.py still works)
-kavara_enhancer/       # package: cli, prompts, pipeline, dsp, silence, ai, cutting, assembly, subtitles, ...
+kavara_enhancer/       # package: cli, batch, prompts, pipeline, dsp, denoise, silence, ai, gemini_config, credentials, cutting, assembly, subtitles, ...
 tests/                 # pytest suite (FFmpeg integration tests auto-skip if FFmpeg is missing)
 ```
 

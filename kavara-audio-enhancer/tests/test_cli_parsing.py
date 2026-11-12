@@ -73,7 +73,7 @@ def test_parser_aliases():
     args = build_argument_parser().parse_args(
         ["-f", "a.mp4", "--lufs=-14", "--captions", "--sub-format", "both", "-w", "8"]
     )
-    assert args.file == "a.mp4"
+    assert args.file == ["a.mp4"]
     assert args.normalize_lufs == -14.0
     assert args.generate_subtitles is True
     assert args.subtitle_formats == ["srt", "vtt"]

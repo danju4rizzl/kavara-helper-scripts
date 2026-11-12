@@ -5,13 +5,15 @@ from __future__ import annotations
 import concurrent.futures
 import math
 import os
+import time
 
 from .constants import (
-    CHUNK_DURATION_SECONDS, DEFAULT_GEMINI_MODEL, DEFAULT_MAX_WORKERS,
-    GEMINI_MODEL_LABEL, STYLE_DIM, STYLE_RESET, STYLE_SUCCESS, STYLE_WARNING,
+    CHUNK_DURATION_SECONDS, DEFAULT_MAX_WORKERS,
+    STYLE_DIM, STYLE_RESET, STYLE_SUCCESS, STYLE_WARNING,
     SUBTITLE_BREAK_GAP_SECONDS, SUBTITLE_MAX_SECONDS, SUBTITLE_MAX_WORDS,
 )
 from .disfluency import find_disfluency_cuts
+from .gemini_config import active_model, gemini_label
 from .models import CutSegment, SubtitleEntry, TimedWord
 from .system import get_audio_duration, run_ffmpeg
 from .ui import format_duration
@@ -88,6 +90,26 @@ def extract_words(response, offset_seconds: float = 0.0, duration_seconds: float
     return words
 
 
+RETRY_DELAYS_SECONDS = (20, 40, 70, 100)  # backoff for rate limits / overload
+
+
+def _is_retryable(exc: Exception) -> bool:
+    return getattr(exc, "code", None) in (429, 500, 503, 504)
+
+
+def _with_retries(call, label: str, delays=RETRY_DELAYS_SECONDS):
+    """Run ``call()``, retrying transient API errors (rate limits, overload) with backoff."""
+    for attempt, delay in enumerate((*delays, None)):
+        try:
+            return call()
+        except Exception as exc:
+            if delay is None or not _is_retryable(exc):
+                raise
+            print(f"    {STYLE_WARNING}[!] {label}: {getattr(exc, 'code', 'error')} - retrying in {delay}s "
+                  f"({attempt + 1}/{len(delays)}){STYLE_RESET}")
+            time.sleep(delay)
+
+
 def _transcribe_chunk(
     client,
     model_name: str,
@@ -102,13 +124,13 @@ def _transcribe_chunk(
     start_str = format_duration(offset_seconds)
     end_str = format_duration(offset_seconds + duration_seconds)
     chunk_label = f"[{chunk_index}/{total_chunks}]" if total_chunks > 1 else ""
-    print(f"    {STYLE_DIM}>> Transcribing {purpose} chunk {chunk_label} ({start_str} - {end_str}) with {GEMINI_MODEL_LABEL}...{STYLE_RESET}")
+    print(f"    {STYLE_DIM}>> Transcribing {purpose} chunk {chunk_label} ({start_str} - {end_str}) with {gemini_label()}...{STYLE_RESET}")
 
     from google.genai import types
 
     uploaded_file = client.files.upload(file=chunk_path)
     try:
-        response = client.models.generate_content(
+        response = _with_retries(lambda: client.models.generate_content(
             model=model_name,
             contents=[
                 types.Content(
@@ -128,7 +150,7 @@ def _transcribe_chunk(
                     word_timestamp=True,
                 ),
             ),
-        )
+        ), f"chunk {chunk_label or '[1/1]'}")
         words = extract_words(response, offset_seconds, duration_seconds)
         if total_chunks > 1:
             print(f"    {STYLE_SUCCESS}[OK] Chunk {chunk_label} transcribed ({len(words)} words).{STYLE_RESET}")
@@ -153,8 +175,11 @@ def transcribe_words(
 
     from google import genai
 
-    client = genai.Client(api_key=api_key)
-    model_name = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    from google.genai import types as genai_types
+
+    # audio_transcription_config is only accepted by the v1beta endpoint.
+    client = genai.Client(api_key=api_key, http_options=genai_types.HttpOptions(api_version="v1beta"))
+    model_name = active_model()
 
     chunks = split_audio_into_chunks(mp3_path, temp_dir)
     total_chunks = len(chunks)
@@ -164,9 +189,10 @@ def transcribe_words(
         return _transcribe_chunk(client, model_name, 1, 1, path, offset, duration, purpose)[1]
 
     worker_count = min(total_chunks, max_workers)
-    print(f"    {STYLE_DIM}>> Dispatching {total_chunks} chunks across {worker_count} parallel threads with {GEMINI_MODEL_LABEL}...{STYLE_RESET}")
+    print(f"    {STYLE_DIM}>> Dispatching {total_chunks} chunks across {worker_count} parallel threads with {gemini_label()}...{STYLE_RESET}")
 
     results: dict[int, list[TimedWord]] = {}
+    failures: list[Exception] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
         future_to_index = {
             executor.submit(_transcribe_chunk, client, model_name, index, total_chunks,
@@ -180,7 +206,13 @@ def transcribe_words(
                 results[index] = words
             except Exception as exc:
                 print(f"    {STYLE_WARNING}[!] Chunk [{index}/{total_chunks}] failed: {exc}{STYLE_RESET}")
+                failures.append(exc)
                 results[index] = []
+
+    if len(failures) == total_chunks:
+        raise RuntimeError(f"all {total_chunks} transcription chunks failed (first error: {failures[0]})")
+    if failures:
+        print(f"    {STYLE_WARNING}[!] {len(failures)}/{total_chunks} chunks failed; those sections were NOT analyzed.{STYLE_RESET}")
 
     return [w for i in range(1, total_chunks + 1) for w in results.get(i, [])]
 

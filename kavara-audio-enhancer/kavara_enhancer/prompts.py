@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 from pathlib import Path
 from typing import Optional
 
 from .constants import (
-    GEMINI_MODEL_LABEL, MAX_LUFS_TARGET, MAX_PLAYBACK_SPEED, MIN_LUFS_TARGET,
+    MAX_LUFS_TARGET, MAX_PLAYBACK_SPEED, MIN_LUFS_TARGET,
     MIN_PLAYBACK_SPEED, STYLE_ACCENT, STYLE_BOLD, STYLE_DIM, STYLE_ERROR,
     STYLE_RESET, STYLE_SUCCESS, STYLE_WARNING, SUPPORTED_AUDIO_EXTENSIONS,
     SUPPORTED_VIDEO_EXTENSIONS,
 )
+from .credentials import find_api_key, keyring_available, save_keyring_key
+from .denoise import ENGINE_DEEPFILTERNET, ENGINE_RNNOISE, ENGINE_SPECTRAL
+from .gemini_config import gemini_label
 from .models import EnhancerContext
 from .system import find_local_media_files, is_supported_file
 from .ui import display_summary_card, format_file_size
@@ -291,11 +295,11 @@ def prompt_for_ai_and_subtitles() -> tuple[bool, bool, list[str]]:
     """Ask user whether to enable AI smart cutting, subtitle generation, or both."""
     options = [
         ("1", "No AI Features          - Fast local DSP only"),
-        ("2", f"AI Smart Cuts Only      - {GEMINI_MODEL_LABEL} cuts 'um', 'uh', & dead silence"),
-        ("3", f"AI Subtitles Only       - {GEMINI_MODEL_LABEL} generates synchronized captions (.srt/.vtt)"),
+        ("2", f"AI Smart Cuts Only      - {gemini_label()} cuts 'um', 'uh', & dead silence"),
+        ("3", f"AI Subtitles Only       - {gemini_label()} generates synchronized captions (.srt/.vtt)"),
         ("4", f"Both AI Cuts & Subtitles- Smart silence cuts + synchronized subtitle files"),
     ]
-    choice = prompt_menu_choice(f"🤖 Step 7: AI Smart Cuts & Caption Generation ({GEMINI_MODEL_LABEL})", options, default_key="1")
+    choice = prompt_menu_choice(f"🤖 Step 7: AI Smart Cuts & Caption Generation ({gemini_label()})", options, default_key="1")
 
     use_cuts = choice in ("2", "4")
     use_subtitles = choice in ("3", "4")
@@ -307,21 +311,53 @@ def prompt_for_ai_and_subtitles() -> tuple[bool, bool, list[str]]:
     return use_cuts, use_subtitles, subtitle_formats
 
 
+def prompt_yes_no(question: str, default: bool = True) -> bool:
+    """Ask a yes/no question; Enter accepts the default."""
+    hint = "Y/n" if default else "y/N"
+    while True:
+        response = input(f"\n  {STYLE_BOLD}{question} [{hint}]: {STYLE_RESET}").strip().lower()
+        if not response:
+            return default
+        if response in ("y", "yes"):
+            return True
+        if response in ("n", "no"):
+            return False
+        print(f"    {STYLE_ERROR}[!] Please enter 'y' or 'n'.{STYLE_RESET}")
+
+
 def ensure_gemini_api_key() -> bool:
-    """Verify GEMINI_API_KEY environment variable or prompt user to enter one."""
-    if os.environ.get("GEMINI_API_KEY"):
+    """Find the Gemini API key (environment/.env, then keyring) or prompt for one."""
+    api_key, source = find_api_key()
+    if api_key:
+        print(f"    {STYLE_DIM}Using Gemini API key from {source}.{STYLE_RESET}")
         return True
 
-    print(f"\n  {STYLE_WARNING}[!] GEMINI_API_KEY environment variable is not set.{STYLE_RESET}")
-    print(f"      {GEMINI_MODEL_LABEL} requires an API key for smart cutting & subtitle generation.")
-    api_key_input = input(f"  {STYLE_BOLD}>{STYLE_RESET} Paste your Gemini API Key (or press Enter to skip AI): ").strip()
+    print(f"\n  {STYLE_WARNING}[!] No Gemini API key found (environment, .env or system keyring).{STYLE_RESET}")
+    print(f"      {gemini_label()} requires an API key for smart cutting & subtitle generation.")
+    api_key_input = getpass.getpass("  > Paste your Gemini API Key (hidden; press Enter to skip AI): ").strip()
     if api_key_input:
         os.environ["GEMINI_API_KEY"] = api_key_input
         print(f"    {STYLE_SUCCESS}[OK] API Key configured for this session.{STYLE_RESET}")
+        if keyring_available() and prompt_yes_no("Save it to your system keyring for next time?", default=False):
+            if save_keyring_key(api_key_input):
+                print(f"    {STYLE_SUCCESS}[OK] Saved to system keyring.{STYLE_RESET}")
+            else:
+                print(f"    {STYLE_WARNING}[!] Could not access a system keyring; the key was not saved.{STYLE_RESET}")
         return True
 
-    print(f"    {STYLE_DIM}Skipping AI features — proceeding with local DSP only.{STYLE_RESET}")
+    print(f"    {STYLE_DIM}Skipping AI features - proceeding with local DSP only.{STYLE_RESET}")
     return False
+
+
+def prompt_for_denoise_engine() -> str:
+    """Ask which noise-reduction engine to use."""
+    options = [
+        ("1", "Spectral Gating  - Built in, fast, good for steady hiss & hum (default)"),
+        ("2", "RNNoise (neural) - Better on speech with changing noise; needs a small model file"),
+        ("3", "DeepFilterNet    - Highest quality neural denoise; needs 'pip install deepfilternet' (PyTorch)"),
+    ]
+    choice = prompt_menu_choice("🧠 Noise Reduction Engine", options, default_key="1")
+    return {"1": ENGINE_SPECTRAL, "2": ENGINE_RNNOISE, "3": ENGINE_DEEPFILTERNET}[choice]
 
 
 def prompt_for_job_confirmation(ctx: EnhancerContext) -> bool:

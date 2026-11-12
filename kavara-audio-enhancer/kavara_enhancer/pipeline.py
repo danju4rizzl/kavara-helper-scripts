@@ -8,13 +8,15 @@ import time
 from .ai import analyze_audio_with_gemini, create_analysis_payload, generate_subtitles_with_gemini
 from .assembly import encode_audio_output, merge_audio_video, merge_cut_video_and_audio
 from .constants import (
-    GEMINI_MODEL_LABEL, MAX_CUT_FRACTION, STYLE_BOLD, STYLE_DIM, STYLE_RESET,
+    MAX_CUT_FRACTION, STYLE_BOLD, STYLE_DIM, STYLE_RESET,
     STYLE_SUCCESS, STYLE_WARNING,
 )
+from .denoise import ENGINE_LABELS, denoise_audio
 from .cutting import apply_cuts_audio_only, sanitize_cuts, total_cut_duration
 from .dsp import (
-    change_speed_preserve_pitch, extract_audio, normalize_audio_loudness, reduce_noise,
+    change_speed_preserve_pitch, extract_audio, normalize_audio_loudness,
 )
+from .gemini_config import gemini_label
 from .models import CutSegment, EnhancerContext
 from .silence import detect_silences
 from .subtitles import save_subtitle_files
@@ -41,7 +43,7 @@ def detect_cuts(ctx: EnhancerContext, raw_wav: str, duration: float) -> list[Cut
             fillers = analyze_audio_with_gemini(
                 mp3_payload, ctx.temp_dir, max_workers=ctx.max_workers, fillers_only=True
             )
-            print(f"    {STYLE_SUCCESS}[OK] {GEMINI_MODEL_LABEL} flagged {len(fillers)} filler segment(s).{STYLE_RESET}")
+            print(f"    {STYLE_SUCCESS}[OK] {gemini_label()} flagged {len(fillers)} filler segment(s).{STYLE_RESET}")
             cuts.extend(fillers)
         except Exception as ai_err:
             print(f"    {STYLE_WARNING}[!] AI filler analysis failed ({ai_err}); continuing with local cuts only.{STYLE_RESET}")
@@ -121,7 +123,7 @@ def run_pipeline(ctx: EnhancerContext) -> None:
     # --- Step: Cut Detection (local silence + AI fillers) ---
     if ctx.use_ai or ctx.cut_silence:
         current_step += 1
-        label = f"local silence + {GEMINI_MODEL_LABEL} fillers" if ctx.use_ai else "local silence detection"
+        label = f"local silence + {gemini_label()} fillers" if ctx.use_ai else "local silence detection"
         log_step(current_step, total_steps, f"Detecting cuts ({label})...")
 
         duration = get_audio_duration(raw_wav)
@@ -139,8 +141,8 @@ def run_pipeline(ctx: EnhancerContext) -> None:
     if ctx.denoise_strength > 0.0:
         current_step += 1
         percentage_label = int(ctx.denoise_strength * 100)
-        log_step(current_step, total_steps, f"Reducing background noise ({percentage_label}% spectral gating)...")
-        reduce_noise(working_wav, denoised_wav, ctx.denoise_strength)
+        log_step(current_step, total_steps, f"Reducing background noise ({percentage_label}% {ENGINE_LABELS.get(ctx.denoise_engine, ctx.denoise_engine)})...")
+        denoise_audio(working_wav, denoised_wav, ctx.denoise_strength, ctx.denoise_engine, ctx.rnnoise_model)
         print(f"    {STYLE_SUCCESS}[OK] Background noise reduced.{STYLE_RESET}")
         working_wav = denoised_wav
 
@@ -163,7 +165,7 @@ def run_pipeline(ctx: EnhancerContext) -> None:
     # --- Step: AI Subtitle / Caption Generation ---
     if ctx.generate_subtitles:
         current_step += 1
-        log_step(current_step, total_steps, f"Generating synchronized subtitles in parallel with {GEMINI_MODEL_LABEL}...")
+        log_step(current_step, total_steps, f"Generating synchronized subtitles in parallel with {gemini_label()}...")
 
         sub_mp3_payload = create_analysis_payload(working_wav, ctx.temp_dir, "subtitle_payload")
         try:

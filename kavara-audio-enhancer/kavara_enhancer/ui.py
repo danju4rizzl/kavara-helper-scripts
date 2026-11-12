@@ -7,9 +7,11 @@ import sys
 import colorama
 
 from .constants import (
-    APP_NAME, GEMINI_MODEL_LABEL, STYLE_ACCENT, STYLE_BOLD, STYLE_DIM,
+    APP_NAME, STYLE_ACCENT, STYLE_BOLD, STYLE_DIM,
     STYLE_HEADER, STYLE_RESET, STYLE_SUCCESS, VERSION,
 )
+from .denoise import ENGINE_LABELS
+from .gemini_config import gemini_label
 from .models import CutSegment, EnhancerContext
 from .subtitles import format_timestamp_vtt
 
@@ -71,7 +73,7 @@ def display_summary_card(ctx: EnhancerContext) -> None:
         mode_desc = "Enhance Audio"
 
     if ctx.denoise_strength > 0.0:
-        denoise_desc = f"{STYLE_SUCCESS}Enabled ({int(ctx.denoise_strength * 100)}% Spectral Gating){STYLE_RESET}"
+        denoise_desc = f"{STYLE_SUCCESS}Enabled ({int(ctx.denoise_strength * 100)}% {ENGINE_LABELS.get(ctx.denoise_engine, ctx.denoise_engine)}){STYLE_RESET}"
     else:
         denoise_desc = f"{STYLE_DIM}Disabled (Bypassed){STYLE_RESET}"
 
@@ -95,11 +97,11 @@ def display_summary_card(ctx: EnhancerContext) -> None:
     else:
         silence_desc = f"{STYLE_DIM}Disabled{STYLE_RESET}"
 
-    ai_desc = f"{STYLE_SUCCESS}Enabled ({GEMINI_MODEL_LABEL} - Parallel){STYLE_RESET}" if ctx.use_ai else f"{STYLE_DIM}Disabled{STYLE_RESET}"
+    ai_desc = f"{STYLE_SUCCESS}Enabled ({gemini_label()} - Parallel){STYLE_RESET}" if ctx.use_ai else f"{STYLE_DIM}Disabled{STYLE_RESET}"
 
     if ctx.generate_subtitles:
         formats_label = ", ".join(fmt.upper() for fmt in ctx.subtitle_formats)
-        sub_desc = f"{STYLE_SUCCESS}Enabled ({formats_label} - {GEMINI_MODEL_LABEL}){STYLE_RESET}"
+        sub_desc = f"{STYLE_SUCCESS}Enabled ({formats_label} - {gemini_label()}){STYLE_RESET}"
     else:
         sub_desc = f"{STYLE_DIM}Disabled{STYLE_RESET}"
 
@@ -160,3 +162,10 @@ def format_cut_report(
     suffix = f" (after {speed}x speed)" if speed != 1.0 else ""
     lines.append(f"Resulting duration: {format_duration(final)}{suffix}.")
     return "\n".join(lines)
+
+
+def display_batch_files(files: list) -> None:
+    """List the files queued in a batch run."""
+    print(f"\n  {STYLE_BOLD}Batch: {len(files)} files{STYLE_RESET} {STYLE_DIM}(settings below apply to all){STYLE_RESET}")
+    for index, file_path in enumerate(files, start=1):
+        print(f"     {STYLE_ACCENT}[{index}]{STYLE_RESET} {file_path.name}")

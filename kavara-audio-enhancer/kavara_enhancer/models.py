@@ -47,6 +47,8 @@ class EnhancerContext:
     subtitle_formats: list[str] = field(default_factory=lambda: ["srt"])
     max_workers: int = DEFAULT_MAX_WORKERS
     denoise_strength: float = 0.8
+    denoise_engine: str = "spectral"
+    rnnoise_model: Optional[Path] = None
     normalize_lufs: Optional[float] = -16.0
     is_video: bool = False
     extract_audio: bool = False

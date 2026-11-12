@@ -19,6 +19,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+keyring = ["keyring"]                 # store the Gemini API key in the OS keyring
+deepfilternet = ["deepfilternet"]     # optional neural denoiser (pulls in PyTorch)
 dev = ["pytest"]
 
 [project.scripts]

@@ -1,7 +1,7 @@
 """Application constants and terminal style codes."""
 
 APP_NAME = "Kavara Audio Enhancer"
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 
 SUPPORTED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".aac", ".flac", ".ogg", ".m4a", ".wma", ".opus"}
 SUPPORTED_VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".ts"}
@@ -21,9 +21,16 @@ GEMINI_MODEL_LABEL = "Gemini 3.5 Transcribe"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-transcribe"
 
 # Filler / repeated-phrase detection (applied to word-timed transcripts)
-FILLER_WORDS = {"um", "umm", "uh", "uhh", "uhm", "ah", "er", "erm", "hmm", "hm", "mm", "mmm"}
+# Matches stretched spellings: um, umm, uhmmm, uh, uhhh, er, erm, ah, ahh, hmm, mmm, eh
+FILLER_PATTERN = r"u+h*m+h*|u+h+|e+r+m*|a+h+m*|e+h+|h+m+|m{2,}"
 MAX_REPEAT_PHRASE_WORDS = 8     # Longest restarted phrase we look for
 MAX_REPEAT_GAP_SECONDS = 1.5    # Longer pause between two identical phrases = deliberate, keep both
+
+# Restarted sentences ("we're going to use another... we're going to use a ...")
+RESTART_MIN_OPENER_WORDS = 3    # Shared opening words needed to call it a restart (if the first try was unfinished)
+RESTART_MAX_SPAN_SECONDS = 12.0 # Max duration of the abandoned attempt
+RESTART_MAX_SPAN_WORDS = 16     # Max length of the abandoned attempt
+RESTART_MAX_GAP_SECONDS = 3.0   # Max pause before the restart
 
 # Subtitle line building from word timings
 SUBTITLE_MAX_WORDS = 12
