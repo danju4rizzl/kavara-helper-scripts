@@ -1,7 +1,6 @@
 numpy
 soundfile
 noisereduce
-librosa
-google-genai
+google-genai>=3.0
 pydantic
 colorama

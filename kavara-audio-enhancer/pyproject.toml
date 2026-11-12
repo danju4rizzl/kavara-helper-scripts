@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kavara-audio-enhancer"
+dynamic = ["version"]
+description = "CLI tool to denoise, speed up, loudness-normalize and AI-edit audio/video, with synchronized subtitles."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "numpy",
+    "soundfile",
+    "noisereduce",
+    "google-genai>=3.0",
+    "pydantic",
+    "colorama",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+kavara-enhancer = "kavara_enhancer.cli:main"
+
+[tool.setuptools]
+packages = ["kavara_enhancer"]
+
+[tool.setuptools.dynamic]
+version = { attr = "kavara_enhancer.constants.VERSION" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
