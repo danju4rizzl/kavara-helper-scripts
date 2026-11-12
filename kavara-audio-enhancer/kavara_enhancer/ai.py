@@ -12,9 +12,8 @@ from .constants import (
     STYLE_DIM, STYLE_RESET, STYLE_SUCCESS, STYLE_WARNING,
     SUBTITLE_BREAK_GAP_SECONDS, SUBTITLE_MAX_SECONDS, SUBTITLE_MAX_WORDS,
 )
-from .disfluency import find_disfluency_cuts
 from .gemini_config import active_model, gemini_label
-from .models import CutSegment, SubtitleEntry, TimedWord
+from .models import SubtitleEntry, TimedWord
 from .system import get_audio_duration, run_ffmpeg
 from .ui import format_duration
 
@@ -217,21 +216,6 @@ def transcribe_words(
     return [w for i in range(1, total_chunks + 1) for w in results.get(i, [])]
 
 
-def analyze_audio_with_gemini(
-    mp3_path: str,
-    temp_dir: str,
-    max_workers: int = DEFAULT_MAX_WORKERS,
-    fillers_only: bool = False,
-) -> list[CutSegment]:
-    """Transcribe with word timings, then cut filler words and restarted/repeated phrases.
-
-    Silence is detected locally elsewhere. ``fillers_only`` is kept for backward
-    compatibility and has no effect: disfluency detection is always applied.
-    """
-    words = transcribe_words(mp3_path, temp_dir, max_workers, purpose="smart cuts")
-    return find_disfluency_cuts(words)
-
-
 def build_subtitles_from_words(words: list[TimedWord]) -> list[SubtitleEntry]:
     """Group word timings into readable subtitle lines."""
     entries: list[SubtitleEntry] = []
@@ -261,13 +245,3 @@ def build_subtitles_from_words(words: list[TimedWord]) -> list[SubtitleEntry]:
             flush()
     flush()
     return entries
-
-
-def generate_subtitles_with_gemini(
-    mp3_path: str,
-    temp_dir: str,
-    max_workers: int = DEFAULT_MAX_WORKERS,
-) -> list[SubtitleEntry]:
-    """Transcribe audio in parallel chunks and build synchronized subtitle lines."""
-    words = transcribe_words(mp3_path, temp_dir, max_workers, purpose="subtitles")
-    return build_subtitles_from_words(words)

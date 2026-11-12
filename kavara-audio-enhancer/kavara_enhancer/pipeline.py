@@ -5,23 +5,42 @@ from __future__ import annotations
 import os
 import time
 
-from .ai import analyze_audio_with_gemini, create_analysis_payload, generate_subtitles_with_gemini
+from .ai import build_subtitles_from_words, create_analysis_payload, transcribe_words
 from .assembly import encode_audio_output, merge_audio_video, merge_cut_video_and_audio
 from .constants import (
     MAX_CUT_FRACTION, STYLE_BOLD, STYLE_DIM, STYLE_RESET,
     STYLE_SUCCESS, STYLE_WARNING,
 )
 from .denoise import ENGINE_LABELS, denoise_audio
+from .disfluency import find_disfluency_cuts
 from .cutting import apply_cuts_audio_only, sanitize_cuts, total_cut_duration
 from .dsp import (
     change_speed_preserve_pitch, extract_audio, normalize_audio_loudness,
 )
 from .gemini_config import gemini_label
-from .models import CutSegment, EnhancerContext
+from .models import CutSegment, EnhancerContext, TimedWord
 from .silence import detect_silences
 from .subtitles import save_subtitle_files
 from .system import get_audio_duration
+from .timeline import remap_words
 from .ui import display_completion_banner, format_cut_report, log_step
+
+
+def ensure_transcript(ctx: EnhancerContext, raw_wav: str) -> list[TimedWord]:
+    """Transcribe the original audio once; cuts and subtitles share the result.
+
+    Raises the original error again on later calls instead of paying for a retry.
+    """
+    if ctx.transcript_error is not None:
+        raise RuntimeError(ctx.transcript_error)
+    if ctx.transcript_words is None:
+        try:
+            payload = create_analysis_payload(raw_wav, ctx.temp_dir, "transcript_payload")
+            ctx.transcript_words = transcribe_words(payload, ctx.temp_dir, max_workers=ctx.max_workers)
+        except Exception as exc:
+            ctx.transcript_error = str(exc)
+            raise
+    return ctx.transcript_words
 
 
 def detect_cuts(ctx: EnhancerContext, raw_wav: str, duration: float) -> list[CutSegment]:
@@ -39,11 +58,8 @@ def detect_cuts(ctx: EnhancerContext, raw_wav: str, duration: float) -> list[Cut
 
     if ctx.use_ai:
         try:
-            mp3_payload = create_analysis_payload(raw_wav, ctx.temp_dir, "cut_analysis_payload")
-            fillers = analyze_audio_with_gemini(
-                mp3_payload, ctx.temp_dir, max_workers=ctx.max_workers, fillers_only=True
-            )
-            print(f"    {STYLE_SUCCESS}[OK] {gemini_label()} flagged {len(fillers)} filler segment(s).{STYLE_RESET}")
+            fillers = find_disfluency_cuts(ensure_transcript(ctx, raw_wav))
+            print(f"    {STYLE_SUCCESS}[OK] {gemini_label()} transcript flagged {len(fillers)} filler/repeat segment(s).{STYLE_RESET}")
             cuts.extend(fillers)
         except Exception as ai_err:
             print(f"    {STYLE_WARNING}[!] AI filler analysis failed ({ai_err}); continuing with local cuts only.{STYLE_RESET}")
@@ -165,11 +181,16 @@ def run_pipeline(ctx: EnhancerContext) -> None:
     # --- Step: AI Subtitle / Caption Generation ---
     if ctx.generate_subtitles:
         current_step += 1
-        log_step(current_step, total_steps, f"Generating synchronized subtitles in parallel with {gemini_label()}...")
-
-        sub_mp3_payload = create_analysis_payload(working_wav, ctx.temp_dir, "subtitle_payload")
+        reuse = ctx.transcript_words is not None
+        log_step(
+            current_step, total_steps,
+            "Building subtitles from the existing transcript..." if reuse
+            else f"Transcribing for subtitles with {gemini_label()}...",
+        )
         try:
-            ctx.subtitle_entries = generate_subtitles_with_gemini(sub_mp3_payload, ctx.temp_dir, max_workers=ctx.max_workers)
+            # One transcript of the original audio, re-timed to the edited output.
+            words = remap_words(ensure_transcript(ctx, raw_wav), ctx.cut_segments, ctx.speed)
+            ctx.subtitle_entries = build_subtitles_from_words(words)
             if ctx.subtitle_entries:
                 ctx.exported_subtitle_files = save_subtitle_files(
                     ctx.subtitle_entries, ctx.output_path, ctx.subtitle_formats

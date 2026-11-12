@@ -60,6 +60,8 @@ class EnhancerContext:
     output_file: Optional[Path] = None
     temp_dir: str = ""
     cut_segments: list[CutSegment] = field(default_factory=list)
+    transcript_words: Optional[list[TimedWord]] = None  # one transcript of the ORIGINAL audio, shared by cuts and subtitles
+    transcript_error: Optional[str] = None
     subtitle_entries: list[SubtitleEntry] = field(default_factory=list)
     exported_subtitle_files: list[Path] = field(default_factory=list)
 
